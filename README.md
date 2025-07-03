@@ -361,6 +361,50 @@ Deux tables stocker dans :
 
 Phase 2 : AR_FAMMILLIES_BAD_EQPT
 
+
+# AR_FAMMILLIES_BAD_EQPT.py - Analyse des Règles d'Association
+
+##  Objectif
+Identifier les équipements problématiques par famille de paramètres en utilisant l'algorithme APRIORI sur des fenêtres glissantes de 12 semaines.
+
+## Données d'entrée
+- **pt_z028_input_bad_for_ar** : Table de sortie de Data_Prep.py, dataset avec encodage équipements + indicateur BAD
+- **Df_Family_Ref.csv** : Référentiel familles de paramètres
+
+## Pipeline principal
+
+### 1. Préparation des données
+- **Optimisation mémoire** : Conversion dtypes (downcast integers/floats, catégorisation strings)
+- **Fenêtres glissantes** : Découpage en périodes de 12 semaines avec décalage hebdomadaire
+- **Filtrage par famille** : Sélection des étapes pertinentes selon le référentiel
+
+### 2. Analyse APRIORI par étape
+Pour chaque (OPERATION, STEP) :
+- **Encodage** : Colonnes `STEP_EQPT_[STEP]-[EQUIPMENT]` + `BAD`
+- **Filtrage fréquence** : Garder équipements présents >5% du temps
+- **APRIORI** : Recherche itemsets fréquents (min_support=0.1)
+- **Règles d'association** : Calcul confidence, lift, support
+- **Filtrage ciblé** : Règles avec conséquent = `BAD` uniquement
+
+### 3. Scoring et ranking
+- **Score composite** : `confidence × lift × support`
+- **Ranking** : Classement des équipements par score décroissant
+- **Fenêtre glissante** : Application sur toutes les semaines
+
+### 4. Agrégation temporelle
+- **Pivot** : Semaines en colonnes, scores en valeurs
+- **Ranking final** : Rang de chaque équipement par semaine et par étape
+;jccyukfyu
+## Output
+- **Table des resultats** : Resultats des regels d'associations pou chaque famille a travers les semaines.
+- **Structure** : FAMILY | OPERATION | STEP | EQPT | week_0 | week_1 | ... | week_n
+- **Valeurs** : Rang de l'équipement (1 = plus problématique)
+
+##  Résultat métier
+**Identification des équipements les plus corrélés aux défauts par famille**, avec évolution temporelle pour détecter les dérives.
+
+=> **Prêt pour la validation** dans VALIDATION_AR_FAMILLIES.py
+
 Phase 3 : VALIDATION_AR_FAMILLIES
 
 
