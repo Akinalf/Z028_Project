@@ -214,7 +214,149 @@ flowchart TD
     D1[Routes Validées Historiquement] --> E
     D2[Métriques Performance] --> E
 ```
-Phase 1 : Data Prep avec le SQL et les transformations.
+# Phase 1 : DATA_PREP.py - Rapport d'état des lieux
+
+## Vue d'ensemble
+
+Le script `DATA_PREP.py` constitue la phase de préparation des données du projet Z028. Il traite les données brutes du PT intermediaire pour produire les datasets nécessaires à l'analyse des règles d'association.
+
+### 1. Extraction SQL depuis Unity Catalog
+
+#### LOT_LIST_INFORMATION_DF - Liste des lots éligibles
+```sql
+SELECT pt_kdf_lot_number AS LOT, 
+       pt_kdf_cam_location AS LOCATION, 
+       pt_kdf_product_code AS PRODUCT,
+       pt_kdf_test_start_datetime AS START_DATE,
+       pt_kdf_test_end_datetime AS END_DATE,
+       pt_kdf_spec_name AS SPEC_NAME,
+       pt_kdf_spec_version AS SPEC_VERSION
+
+FROM sem1.pt_kdf_lot_normalized 
+WHERE pt_kdf_cam_location = 'M2SICN-ADT02' 
+  AND fab_name = 'CROLLES 300'
+  AND LEFT(pt_kdf_product_code, 5) = 'KVB98'
+  AND pt_kdf_test_end_datetime >= DATE_SUB(CURRENT_DATE(), 365)
+  AND length(pt_kdf_lot_number) <= 7
+```
+**Filtres appliqués** :
+- **Localisation** : M2SICN-ADT02 (équipement de test spécifique)
+- **Fab** : CROLLES 300 uniquement
+- **Produit** : Code produit commençant par 'KVB98' (technologie Z028)
+- **Période** : 365 derniers jours
+- **Format lot** : Maximum 7 caractères
+
+#### df_parameter_info - Données des paramètres
+```sql
+SELECT
+    pt_kdf_lot_number AS LOT,
+    pt_kdf_cam_location AS T84_LOCATION,
+    pt_kdf_parameter_id AS PARAMETER,
+    pt_kdf_parameter_value AS PARAMETER_VALUE,
+    pt_kdf_test_start_datetime AS START_DATE,
+    pt_kdf_test_end_datetime AS END_DATE,
+    pt_kdf_wafer_number AS WAFER,
+    tech_lz_folder_source_id AS FAB,
+    pt_kdf_spec_name AS SPEC_NAME,
+    pt_kdf_spec_version AS SPEC_VERSION,
+    pt_kdf_site_name AS SITE_NUMBER,
+    pt_kdf_site_is_last_pattern AS IS_LAST_PATTERN,
+    MAX(pt_kdf_test_end_datetime) OVER (PARTITION BY pt_kdf_lot_number) AS MAX_TEST_DATE
+
+FROM sem1.pt_kdf_parameter_normalized
+
+WHERE pt_kdf_cam_location = 'M2SICN-ADT02' 
+    AND fab_name = 'CROLLES 300' 
+    AND pt_kdf_test_end_datetime >= DATE_SUB(CURRENT_DATE(), 365)
+    AND length(pt_kdf_lot_number) <= 7
+    AND pt_kdf_lot_number IN (SELECT LOT FROM LOT_LIST_INFORMATION_DF)
+    AND pt_kdf_parameter_id IN (SELECT PARAMETER FROM df_PTM2_param_family_Parameter)
+```
+**Optimisations SQL** :
+- **Window function** : MAX(test_end_datetime) OVER (PARTITION BY lot) pour identifier le dernier test
+- **Jointure implicite** : IN clause avec LOT_LIST_INFORMATION_DF 
+- **Filtrage paramètres** : Seulement les paramètres définis dans df_PTM2_param_family_Parameter
+
+####  df_Value_info - Limites et spécifications
+```sql
+SELECT
+    pt_klf_spec_name AS SPEC_NAME,
+    pt_klf_spec_version AS SPEC_VERSION,
+    pt_klf_parameter_id AS PARAMETER,
+    pt_klf_validity_limit_lower_bound AS LVL,
+    pt_klf_validity_limit_upper_bound AS UVL,
+    pt_klf_spec_limit_lower_bound AS LSL,
+    pt_klf_spec_limit_upper_bound AS USL,
+    pt_klf_parameter_category AS PARAMETER_TYPE,
+    pt_klf_parameter_target AS PARAMETER_TARGET
+
+FROM sem1.pt_klf_normalized
+    
+WHERE
+    pt_klf_parameter_id in (SELECT PARAMETER FROM df_PTM2_param_family_Parameter)
+    AND (pt_klf_parameter_category in ('GY', 'GR', 'KR', 'KY'))
+    AND pt_klf_spec_name = "C28SOIM2SICN"
+```
+**Limites définies** :
+- **LVL/UVL** : limites de validité
+- **LSL/USL** :limites de spécification
+- **Catégories** : GY, GR, KR, KY (types de paramètres qualité)
+- **Spec** : C28SOIM2SICN 
+
+#### df_lot_history - Historique des équipements
+```sql
+select 
+  leh_fe_std_lot_id as LOT
+  ,leh_fe_std_operation_name as OPERATION
+  ,leh_fe_std_operation_description as OPERATION_DESCRIPTION
+  ,leh_fe_std_step_name as STEP
+  ,leh_fe_std_equipment_id as EQUIPMENT
+  ,leh_fe_std_lot_step_start_datetime as STEP_START_DATE
+  ,leh_fe_std_lot_step_end_datetime as STEP_END_DATE
+  ,leh_fe_std_mes_product_name as PRODUCT
+  ,leh_fe_std_route_name as ROUTE
+  ,leh_fe_std_recipe_id as RECIPE_ID
+from publication.v_leh_fe_std_normalized
+where 
+  leh_fe_std_route_name = 'Z028RR_14KLR_34LS_10M'
+  AND leh_fe_std_lot_id IN (SELECT LOT FROM LOT_LIST_INFORMATION_DF)
+  AND SUBSTR(leh_fe_std_equipment_id, 1, 1) <> 'X'
+  AND INSTR(leh_fe_std_step_name, 'MEAS') = 0
+```
+**Filtres route** :
+- **Route spécifique** : Z028RR_14KLR_34LS_10M (route de référence Z028)
+- **Équipements valides** : Exclusion des équipements commençant par 'X'
+- **Étapes process** : Exclusion des étapes de mesure ('MEAS')
+
+### 2. Fichiers CSV de référence
+- **Z028_DEFAULT_PROCESS_ROUTE.csv** : Route de processus par défaut (séparateur `;`)
+- **Df_Family_Ref.csv** : Référentiel des familles de paramètres (séparateur `;`)
+
+## Transformations principales
+
+### 1. Calcul des rendements
+- Jointure données test + spécifications
+- Calcul OOV/OOS par paramètre → Yield par famille
+- Pivot des familles de paramètres en colonnes
+
+### 2. Traitement des équipements
+- Filtrage des étapes avec équipements variables uniquement
+- Calcul de l'ordre des étapes et rang des opérations
+- Encodage catégoriel des combinaisons STEP-EQUIPMENT
+
+### 3. Classification GOOD/BAD
+- Application des seuils métier par famille (ex: CONTACT < 0.98 → BAD)
+- Agrégation au niveau LOGICAL_ID + OPERATION + STEP
+
+## Outputs
+Deux tables stocker dans :
+  ***mds_prod_gold_experiment.datasciences_dev***
+- **pt_z028_input_bad_for_ar** : Dataset avec indicateur BAD
+- **pt_z028_input_good_for_ar** : Dataset avec indicateur GOOD (inverse)
+
+**Structure finale** : 1 ligne = 1 lot + 1 étape + métriques yield + classification + équipements encodés
+
+ => **Prêt pour l'analyse des règles d'association** dans AR_BAD.py
 
 
 Phase 2 : AR_FAMMILLIES_BAD_EQPT
