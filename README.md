@@ -394,21 +394,14 @@ Pour chaque (OPERATION, STEP) :
 ### 4. Agrégation temporelle
 - **Pivot** : Semaines en colonnes, scores en valeurs
 - **Ranking final** : Rang de chaque équipement par semaine et par étape
-;jccyukfyu
+
+
 ## Output
-- **Table des resultats** : Resultats des regels d'associations pou chaque famille a travers les semaines.
+- **Table des resultats** : Resultats des regles d'associations pour chaque famille a travers les semaines.
 - **Structure** : FAMILY | OPERATION | STEP | EQPT | week_0 | week_1 | ... | week_n
-- **Valeurs** : Rang de l'équipement (1 = plus problématique)
+- **Valeurs** : Rang de l'équipement (1 = le plus problématique)
 
 ##  Résultat métier
-**Identification des équipements les plus corrélés aux défauts par famille**, avec évolution temporelle pour détecter les dérives.
+**Identification des équipements les plus corrélés aux défauts par famille**, avec une évolution temporelle pour détecter les dérives.
 
 => **Prêt pour la validation** dans VALIDATION_AR_FAMILLIES.py
-
-Phase 3 : VALIDATION_AR_FAMILLIES
-
-
-
-
-
-Conclusion
