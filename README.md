@@ -7,7 +7,7 @@
 
 ## Architecture technique
 - **Technologies** : Spotfire, python, Databricks, pySpark, SQL
-- **Ressources cluster** : 32Gb - 4cores
+- **Ressources cluster** : [Voir Section Driver](#DriverNode)
 
 
 
@@ -146,7 +146,7 @@ l'approche fenêtre glissante 12 semaines change la donne :
 ### 4.1 Matrice de Décision
 
 | Critère | Règles Association | ML Supervisé | Deep Learning | Optimisation Combinatoire |
-|---------|-------------------|--------------|---------------|--------------|
+|:---------:|:-------------------:|:--------------:|:---------------:|:--------------:|
 | **Interprétabilité** |  🟩Excellente | 🟨Moyenne |  🟥Faible | 🟨Moyenne |
 | **Performance** | 🟨Moyenne |🟩 Bonne |🟩Excellente | 🟩Bonne |
 | **Temps développement** |🟩Court | 🟨Moyen |  🟥Long | 🟥Long |
@@ -172,7 +172,7 @@ l'approche fenêtre glissante 12 semaines change la donne :
 - Manque données (wafer) en production pour un apprentissage efficace.
 - Complexité importante en termes d’infrastructure et d’expertise nécessaire.
 
-## 5. Bibliographie Spécialisée
+## 5. Bibliographie des algorythmes
 
 **Règles d'Association Manufacturing** :
 - Kusiak, A. (2000). "Rough set theory in manufacturing". *International Journal of Production Research*, 38(18), 4349-4364.
@@ -196,24 +196,256 @@ l'approche fenêtre glissante 12 semaines change la donne :
 
 ## Implémentation code détaillé
 
-Data Query : 
-
+---
+Pipeline Unity Catalog
+---
 ```mermaid
 flowchart TD
-    A[Unity Catalog] --> B[DATA_PREP_EQPT.py]
-    B --> C[AR_FAMMILLIES_BAD_EQPT.py]  
-    C --> D[VALIDATION_AR_FAMILLIES.py]
-    D --> E[Résultats Finaux]
+    %% Unity Catalog avec les 4 tables en ligne
+    subgraph UC ["Unity Catalog"]
+        A[("pt_klf")]
+        B[("pt_kdf_lot")] 
+        C[("pt_kdf_parameter")]
+        D[("v_leh_fe_std")]
+    end
     
-    B1[df_BAD_EQPT_Optimized.parquet] --> C
-    B2[df_GOOD_EQPT_Optimized.parquet] --> C
+    %% Script principal
+    E["📓DataPrep.py"]
     
-    C[AR_FAMMILLIES_BAD_EQPT.py] --> C2[Result_Family_step_EQPT_BAD.xlsx]
-    C2[Result_Family_step_EQPT_BAD.xlsx] --> D
+    %% Fichier CSV
+    F[\"df_PTM2_param_<br/>family_parameter.csv"\]
     
-    D1[Routes Validées Historiquement] --> E
-    D2[Métriques Performance] --> E
+    %% Tables générées et Fichier CSV 
+    G[("pt_z028_input_<br/>bad_for_ar")]
+    H[("pt_z028_input_<br/>good_for_ar")]
+    I[\"df_family_ref.csv"\]
+    
+    %% Scripts d'analyse
+    J["📓AR_FAMILIES_EQPT"]
+    
+    %% Tables résultats
+    K[("Pt_z028_ar_bad<br/>route_result")]
+    L[("Pt_gor2_ar_good<br/>route_result")]
+    
+    %% Connexions principales
+    UC --> E
+    F --> E
+    I --> E
+
+    E ~~~ I 
+    E --> G
+    E --> H
+    
+
+    I --> J
+    G --> J
+    H --> J
+
+    J --> K
+    J --> L
+    
+    %% Légende des formes
+    subgraph legend ["📖 Légende"]
+        direction LR
+        LT[("Tables")]
+        LS["📓Scripts"]
+        LC[\"CSV"\]
+    end
+    
+    %% Styles avec couleurs distinctes
+    classDef cylinder fill:#e1f5fe,stroke:#0277bd,stroke-width:3px
+    classDef script fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef parquet fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef csv fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef subgraphStyle fill:#fafafa,stroke:#666,stroke-width:1px
+    classDef subgraphCatalog fill:transparent,stroke:#666,stroke-width:1px
+
+    class A,B,C,D,G,H,L,K cylinder
+    class E,J script
+    class F parquet
+    class I csv
+    class legend subgraphStyle
+    class UC subgraphCatalog
+    class LT cylinder
+    class LS script
+    class LF parquet
+    class LC csv
 ```
+
+---
+
+#  Job et Pipeline Databricks
+
+## **Vue d'ensemble du Pipeline**
+
+###  **Principe clé :**
+- **Un seul notebook** → Deux comportements différents
+- **Paramètre `type_route`** → Détermine le flux de données
+- **Logique conditionnelle** → `"good"` vs `"bad"` routes
+- **Planification** → Execution par période.
+
+---
+
+<div style="display: flex; justify-content: space-between; margin: 20px 0;">
+<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px; text-align: center; width: 30%;">
+<strong>Phase 1</strong><br>Data Prep<br><small>24 min</small>
+</div>
+<div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 15px; border-radius: 8px; text-align: center; width: 30%;">
+<strong>Phase 2</strong><br>APRIORI<br><small>46 min</small>
+</div>
+<div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 15px; border-radius: 8px; text-align: center; width: 30%;">
+<strong>Phase 3</strong><br>Validation<br><small>6 min</small>
+</div>
+</div>
+
+# **Job Principal : `PT_Z028_Worst_Route`**
+
+## Cluster Z028_Job_Cluster
+
+## Configuration des Nodes
+
+<table>
+<tr>
+<td width="50%" align="center">
+
+<a id="DriverNode"></a>
+### **Driver Node**
+**Type :** Standard_D5s_v2
+**RAM :** 56 GB
+**Cores :** 16
+**Quantité :** 1
+
+</td>
+<td width="50%" align="center">
+
+### **Worker Nodes**
+**Type :** Standard_D4ds_v5  
+**RAM :** 16 GB par node
+**Cores :** 4 par node
+**Quantité :** 8 (Spot instances)
+
+*Les Spot Instances dans Databricks sont des machines virtuelles à prix réduit, mais avec moins de garanties de disponibilité.*
+</td>
+</tr>
+</table>
+
+## Ressources Totales
+
+<div align="center">
+
+| **RAM Total** | **Cores Total** | **Nodes Total** |
+|:----------------:|:------------------:|:-------------------:|
+| **184 GB** | **48 Cores** | **9 Nodes** |
+
+---
+
+### **Performance**
+
+| Tâche | Durée | Notes |
+|:-------:|:-------:|:-------:|
+| **Data_Preparation** | 12 min | Traitement Unity Catalog |
+| **AR_BAD/GOOD** | 46 min | APRIORI fenêtre glissante |
+| **Validation** | 6 min | Tests statistiques |
+| **Total Pipeline** | **Auto-scaling** |  |
+
+### **Orchestration & Dépendances**
+
+```mermaid
+graph TD
+    A[Data_Preparation] --> B[AR_BAD]
+    A --> C[AR_GOOD] 
+    B --> D[AR_BAD_VALIDATION]
+    C --> E[AR_GOOD_VALIDATION]
+    
+    style A fill:#667eea
+    style B fill:#f093fb  
+    style C fill:#f093fb
+    style D fill:#4facfe
+    style E fill:#4facfe
+```
+
+### **Planification**
+
+**Fréquence** : Hebdomadaire (chaque lundi 02:00 UTC)
+**Déclencheur** : Cron `58 30 4 ? * Mon`
+**Timeout** : 2h maximum par job
+
+### Avantages Architecture Databricks
+
+####  **Réutilisabilité maximale**
+**Même notebook** `AR_FAMILIES_EQPT` 
+**Paramètre** `type_route` change le comportement
+**DRY Principle** respecté
+
+####  **Parallélisation intelligente**
+**AR_BAD** et **AR_GOOD** en parallèle
+**Validation** en séquence pour cohérence
+**Optimisation ressources** automatique
+
+####  **Monitoring intégré**
+**Métriques temps réel** par tâche
+**Notifications email** en cas d'échec
+**Logs centralisés** pour debug
+
+####  **Scalabilité**
+**Auto-scaling cluster** selon la charge
+**Photon engine** pour performance SQL
+**Adaptive Query Execution** optimisé
+
+---
+
+
+## **Principe de Paramétrage**
+
+### **Notebook unique : `AR_FAMILIES_EQPT`**
+
+| Paramètre | Valeur | Comportement |
+|:------------:|:--------:|:-------------------------------:|
+| `type_route` | `"good"` | Lit/Écrit dans **Golden Route** |
+| `type_route` | `"bad"` | Lit/Écrit dans **Worst Route** |
+
+### **Logique dynamique dans le code :**
+```python
+# Dans le notebook AR_FAMILIES_EQPT
+type_route = dbutils.widgets.get("type_route")
+
+# Pour import
+df_EQPT_spark = spark.sql(f"""
+    SELECT *
+    FROM mds_prod_gold_experiment.datasciences_dev.pt_z028_input_{type_route.lower()}_for_ar
+    WHERE T84_TEST_DATE BETWEEN DATE_SUB(CURRENT_DATE(), 365) AND CURRENT_DATE()
+""")
+# Et export
+    create_or_update_table(spark.createDataFrame(sparkfinal_merged_df),
+    f"mds_prod_gold_experiment.datasciences_dev.pt_z028_ar_{type_route.lower()}_route_results")
+```
+
+---
+
+## **Avantages de cette approche**
+
+### **Réutilisabilité**
+**Un seul code source** à maintenir
+**Logique métier identique** pour les deux cas
+**Évite la duplication** de code
+
+### **Maintenabilité**
+**Changements centralisés** dans un seul notebook
+**Cohérence garantie** entre les deux flux
+**Tests simplifiés**
+
+### **Flexibilité**
+**Facilement extensible** (ajout de nouveaux types)
+**Configuration par paramètres**
+**Orchestration Databricks native**
+
+---
+
+
+
+</div>
+
+
 # Phase 1 : DATA_PREP.py - Rapport d'état des lieux
 
 ## Vue d'ensemble
@@ -405,3 +637,11 @@ Pour chaque (OPERATION, STEP) :
 **Identification des équipements les plus corrélés aux défauts par famille**, avec une évolution temporelle pour détecter les dérives.
 
 => **Prêt pour la validation** dans VALIDATION_AR_FAMILLIES.py
+
+Phase 3 : VALIDATION_AR_FAMILLIES
+
+
+
+
+
+Conclusion
