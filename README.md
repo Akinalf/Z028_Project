@@ -276,7 +276,7 @@ flowchart TD
 
 #  Job et Pipeline Databricks
 
-## **Vue d'ensemble du Pipeline**
+## **Vue d'ensemble du Job**
 
 ###  **Principe clé :**
 - **Un seul notebook** → Deux comportements différents
@@ -288,7 +288,7 @@ flowchart TD
 
 <div style="display: flex; justify-content: space-between; margin: 20px 0;">
 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px; text-align: center; width: 30%;">
-<strong>Phase 1</strong><br>Data Prep<br><small>24 min</small>
+<strong>Phase 1</strong><br>Data Prep<br><small>14 min</small>
 </div>
 <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 15px; border-radius: 8px; text-align: center; width: 30%;">
 <strong>Phase 2</strong><br>APRIORI<br><small>46 min</small>
@@ -311,7 +311,7 @@ flowchart TD
 
 ### **Driver Node**
 **Type :** Standard_D5s_v2
-**RAM :** 56 GB
+**RAM :** 112 GB
 **Cores :** 16
 **Quantité :** 1
 
@@ -335,7 +335,7 @@ flowchart TD
 
 | **RAM Total** | **Cores Total** | **Nodes Total** |
 |:----------------:|:------------------:|:-------------------:|
-| **184 GB** | **48 Cores** | **9 Nodes** |
+| **64-256 GB** | **16-64 Cores** | **9 Nodes** |
 
 ---
 
@@ -343,7 +343,7 @@ flowchart TD
 
 | Tâche | Durée | Notes |
 |:-------:|:-------:|:-------:|
-| **Data_Preparation** | 12 min | Traitement Unity Catalog |
+| **Data_Preparation** | 10 min | Traitement Unity Catalog |
 | **AR_BAD/GOOD** | 46 min | APRIORI fenêtre glissante |
 | **Validation** | 6 min | Tests statistiques |
 | **Total Pipeline** | **Auto-scaling** |  |
@@ -364,7 +364,7 @@ graph TD
     style E fill:#4facfe
 ```
 
-### **Planification**
+### Planification
 
 **Fréquence** : Hebdomadaire (chaque lundi 02:00 UTC)
 **Déclencheur** : Cron `58 30 4 ? * Mon`
@@ -372,22 +372,22 @@ graph TD
 
 ### Avantages Architecture Databricks
 
-####  **Réutilisabilité maximale**
+####  <u>Réutilisabilité maximale</u>
 **Même notebook** `AR_FAMILIES_EQPT` 
 **Paramètre** `type_route` change le comportement
 **DRY Principle** respecté
 
-####  **Parallélisation intelligente**
+####  <u>Parallélisation intelligente</u>
 **AR_BAD** et **AR_GOOD** en parallèle
 **Validation** en séquence pour cohérence
 **Optimisation ressources** automatique
 
-####  **Monitoring intégré**
+####  <u>Monitoring intégré</u>
 **Métriques temps réel** par tâche
 **Notifications email** en cas d'échec
 **Logs centralisés** pour debug
 
-####  **Scalabilité**
+####  <u>Scalabilité</u>
 **Auto-scaling cluster** selon la charge
 **Photon engine** pour performance SQL
 **Adaptive Query Execution** optimisé
@@ -450,7 +450,9 @@ df_EQPT_spark = spark.sql(f"""
 
 ## Vue d'ensemble
 
-Le script `DATA_PREP.py` constitue la phase de préparation des données du projet Z028. Il traite les données brutes du PT intermediaire pour produire les datasets nécessaires à l'analyse des règles d'association.
+Le script `DATA_PREP.py` constitue la phase de préparation des données du projet Z028. Il traite les données brutes du PT intermediaire pour produire les tables nécessaires à l'analyse des règles d'association.
+
+*Note technique : Une version parallèle de ce script existe avec des clauses WHERE étendues à 365 jours (au lieu des filtres standards). Cette version a servi à l'initialisation initiale des tables de référence avec un historique complet d'une année de données de production.*
 
 ### 1. Extraction SQL depuis Unity Catalog
 
@@ -468,7 +470,7 @@ FROM sem1.pt_kdf_lot_normalized
 WHERE pt_kdf_cam_location = 'M2SICN-ADT02' 
   AND fab_name = 'CROLLES 300'
   AND LEFT(pt_kdf_product_code, 5) = 'KVB98'
-  AND pt_kdf_test_end_datetime >= DATE_SUB(CURRENT_DATE(), 365)
+  AND pt_kdf_test_end_datetime >= DATE_SUB(CURRENT_DATE(), 7)
   AND length(pt_kdf_lot_number) <= 7
 ```
 **Filtres appliqués** :
@@ -499,7 +501,7 @@ FROM sem1.pt_kdf_parameter_normalized
 
 WHERE pt_kdf_cam_location = 'M2SICN-ADT02' 
     AND fab_name = 'CROLLES 300' 
-    AND pt_kdf_test_end_datetime >= DATE_SUB(CURRENT_DATE(), 365)
+    AND pt_kdf_test_end_datetime >= DATE_SUB(CURRENT_DATE(), 7)
     AND length(pt_kdf_lot_number) <= 7
     AND pt_kdf_lot_number IN (SELECT LOT FROM LOT_LIST_INFORMATION_DF)
     AND pt_kdf_parameter_id IN (SELECT PARAMETER FROM df_PTM2_param_family_Parameter)
@@ -583,18 +585,15 @@ where
 ## Outputs
 Deux tables stocker dans :
   ***mds_prod_gold_experiment.datasciences_dev***
-- **pt_z028_input_bad_for_ar** : Dataset avec indicateur BAD
-- **pt_z028_input_good_for_ar** : Dataset avec indicateur GOOD (inverse)
+- **pt_z028_input_bad_for_ar** : Table avec indicateur BAD
+- **pt_z028_input_good_for_ar** : Table avec indicateur GOOD (inverse)
 
 **Structure finale** : 1 ligne = 1 lot + 1 étape + métriques yield + classification + équipements encodés
 
- => **Prêt pour l'analyse des règles d'association** dans AR_BAD.py
+→  **Prêt pour l'analyse des règles d'association** dans AR_BAD.py
 
 
-Phase 2 : AR_FAMMILLIES_BAD_EQPT
-
-
-# AR_FAMMILLIES_BAD_EQPT.py - Analyse des Règles d'Association
+# Phase 2 : AR_FAMMILLIES_EQPT.py - Analyse des Règles d'Association
 
 ##  Objectif
 Identifier les équipements problématiques par famille de paramètres en utilisant l'algorithme APRIORI sur des fenêtres glissantes de 12 semaines.
@@ -629,16 +628,20 @@ Pour chaque (OPERATION, STEP) :
 
 
 ## Output
-- **Table des resultats** : Resultats des regles d'associations pour chaque famille a travers les semaines.
+Deux tables stocker dans :
+***mds_prod_gold_experiment.datasciences_dev***
+
+- **pt_z028_ar_bad_route_results** : Resultats des regles d'associations pour chaque famille a travers les semaines.
+- **pt_z028_ar_good_route_results** : Resultats des regles d'associations pour chaque famille a travers les semaines.
 - **Structure** : FAMILY | OPERATION | STEP | EQPT | week_0 | week_1 | ... | week_n
 - **Valeurs** : Rang de l'équipement (1 = le plus problématique)
 
 ##  Résultat métier
 **Identification des équipements les plus corrélés aux défauts par famille**, avec une évolution temporelle pour détecter les dérives.
 
-=> **Prêt pour la validation** dans VALIDATION_AR_FAMILLIES.py
+→ **Prêt pour la validation** dans VALIDATION_AR_FAMILLIES.py
 
-Phase 3 : VALIDATION_AR_FAMILLIES
+# Phase 3 : VALIDATION_AR_FAMILLIES
 
 
 
