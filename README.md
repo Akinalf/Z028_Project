@@ -44,7 +44,7 @@ l'approche fenêtre glissante 12 semaines change la donne :
 |Algorithme|Dataset Complet (50M)|Fenêtre 12 sem (~4M)|Verdict|
 |----------|---------------------|--------------------|-------|
 |APRIORI|Lent (~45+ min)|Acceptable (~4.2 min)|Optimal|
-|FP-Growth|Rapide (~12 min)|Très rapide (~1.8 min)|Overkill|
+|FP-Growth|Rapide (~12 min)|Très rapide (~1.8 min)|Excessif|
 
 **Algorithmes principaux** :
 - **APRIORI** (Agrawal & Srikant, 1994)
@@ -148,9 +148,9 @@ l'approche fenêtre glissante 12 semaines change la donne :
 | Critère | Règles Association | ML Supervisé | Deep Learning | Optimisation Combinatoire |
 |:---------:|:-------------------:|:--------------:|:---------------:|:--------------:|
 | **Interprétabilité** |  🟩Excellente | 🟨Moyenne |  🟥Faible | 🟨Moyenne |
-| **Performance** | 🟨Moyenne |🟩 Bonne |🟩Excellente | 🟩Bonne |
+| **Performance** | 🟨Moyenne |🟩Bonne |🟩Excellente | 🟩Bonne |
 | **Temps développement** |🟩Court | 🟨Moyen |  🟥Long | 🟥Long |
-| **Robustesse données** |🟩 Bonne | 🟨Moyenne |  🟥Faible |🟩 Bonne |
+| **Robustesse données** |🟩Bonne | 🟨Moyenne |  🟥Faible |🟩 Bonne |
 | **Déploiement prod** |🟩Simple | 🟨Moyen | 🟥Complexe | 🟨Moyen |
 | **Expertise requise** | 🟨Moyenne |🟩Standard | 🟥Élevée | 🟥Élevée |
 
@@ -185,7 +185,7 @@ l'approche fenêtre glissante 12 semaines change la donne :
 
 ## 6. Perspectives et Améliorations Futures
 
-### 6.1 Hybridation Approches
+### 6.1 Hybridation des approches
 - Combinaison des règles d'association avec des méthodes ML pour améliorer la précision et la robustesse des recommandations.
 
 ### 6.2 Temps Réel et Streaming
@@ -255,14 +255,13 @@ flowchart TD
     %% Styles avec couleurs distinctes
     classDef cylinder fill:#e1f5fe,stroke:#0277bd,stroke-width:3px
     classDef script fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef parquet fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
     classDef csv fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef subgraphStyle fill:#fafafa,stroke:#666,stroke-width:1px
     classDef subgraphCatalog fill:transparent,stroke:#666,stroke-width:1px
 
     class A,B,C,D,G,H,L,K cylinder
     class E,J script
-    class F parquet
+    class F csv
     class I csv
     class legend subgraphStyle
     class UC subgraphCatalog
@@ -286,17 +285,13 @@ flowchart TD
 
 ---
 
-<div style="display: flex; justify-content: space-between; margin: 20px 0;">
-<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px; text-align: center; width: 30%;">
-<strong>Phase 1</strong><br>Data Prep<br><small>14 min</small>
-</div>
-<div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 15px; border-radius: 8px; text-align: center; width: 30%;">
-<strong>Phase 2</strong><br>APRIORI<br><small>46 min</small>
-</div>
-<div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 15px; border-radius: 8px; text-align: center; width: 30%;">
-<strong>Phase 3</strong><br>Validation<br><small>6 min</small>
-</div>
-</div>
+
+| Phase | Processus | Durée |
+|-------|-----------|--------|
+| **Phase 1** | Data Prep | 6 min |
+| **Phase 2** | APRIORI | 56 min |
+| **Phase 3** | Validation | 30 sec |
+
 
 # **Job Principal : `PT_Z028_Worst_Route`**
 
@@ -320,7 +315,7 @@ flowchart TD
 
 ### **Worker Nodes**
 **Type :** Standard_D4ds_v5  
-**RAM :** 16 GB par node
+**RAM :** 32 GB par node
 **Cores :** 4 par node
 **Quantité :** 8 (Spot instances)
 
@@ -363,34 +358,46 @@ graph TD
     style D fill:#4facfe
     style E fill:#4facfe
 ```
+</div>
 
 ### Planification
+|**Fréquence** |**Déclencheur**|**Timeout**|
+|---------------------------------------|------------------------|---------------------|
+| Hebdomadaire (chaque lundi 02:00 UTC) | Cron `58 30 4 ? * Mon` | 2h maximum par job  |
 
-**Fréquence** : Hebdomadaire (chaque lundi 02:00 UTC)
-**Déclencheur** : Cron `58 30 4 ? * Mon`
-**Timeout** : 2h maximum par job
 
 ### Avantages Architecture Databricks
 
-####  <u>Réutilisabilité maximale</u>
-**Même notebook** `AR_FAMILIES_EQPT` 
-**Paramètre** `type_route` change le comportement
-**DRY Principle** respecté
+####  Réutilisabilité maximale
 
-####  <u>Parallélisation intelligente</u>
-**AR_BAD** et **AR_GOOD** en parallèle
-**Validation** en séquence pour cohérence
-**Optimisation ressources** automatique
+- **Même notebook** `AR_FAMILIES_EQPT`  
+- **Paramètre** `type_route` change le comportement  
+- **DRY Principle** respecté  
 
-####  <u>Monitoring intégré</u>
-**Métriques temps réel** par tâche
-**Notifications email** en cas d'échec
-**Logs centralisés** pour debug
+####  Parallélisation intelligente
 
-####  <u>Scalabilité</u>
-**Auto-scaling cluster** selon la charge
-**Photon engine** pour performance SQL
-**Adaptive Query Execution** optimisé
+- **AR_BAD** et **AR_GOOD** en parallèle  
+- **Validation** en séquence pour cohérence  
+- **Optimisation ressources** automatique  
+
+
+####  Monitoring intégré
+
+- **Métriques temps réel** par tâche  
+- **Notifications email** en cas d'échec  
+- **Logs centralisés** pour debug  
+
+---
+####  Scalabilité
+
+
+  
+
+
+|**Auto-scaling cluster** |**Photon engine**|**Adaptive Query Execution**|
+|---------------------|-----------------------|--------------|
+|  selon la charge  | pour performance SQL | optimisé |
+
 
 ---
 
@@ -425,19 +432,21 @@ df_EQPT_spark = spark.sql(f"""
 ## **Avantages de cette approche**
 
 ### **Réutilisabilité**
-**Un seul code source** à maintenir
-**Logique métier identique** pour les deux cas
-**Évite la duplication** de code
+
+- **Un seul code source** à maintenir
+- **Logique métier identique** pour les deux cas
+- **Évite la duplication** de code
 
 ### **Maintenabilité**
-**Changements centralisés** dans un seul notebook
-**Cohérence garantie** entre les deux flux
-**Tests simplifiés**
+
+- **Changements centralisés** dans un seul notebook
+- **Cohérence garantie** entre les deux flux
+- **Tests simplifiés**
 
 ### **Flexibilité**
-**Facilement extensible** (ajout de nouveaux types)
-**Configuration par paramètres**
-**Orchestration Databricks native**
+- **Facilement extensible** (ajout de nouveaux types)
+- **Configuration par paramètres**
+- **Orchestration Databricks native**
 
 ---
 
@@ -641,10 +650,227 @@ Deux tables stocker dans :
 
 → **Prêt pour la validation** dans VALIDATION_AR_FAMILLIES.py
 
-# Phase 3 : VALIDATION_AR_FAMILLIES
+
+# Phase 3 : VALIDATION_AR_FAMILIES - Validation des Routes Identifiées
+
+## Objectif
+Valider statistiquement les routes identifiées comme problématiques ou bonnes dans la Phase 2 en comparant les performances réelles des wafers ayant suivi ces équipements.
+
+## Paramétrage dynamique
+Le script utilise le paramètre `type_route` des widgets Databricks pour déterminer si on effectue l'analyse de la worst ou de la golden route :
+
+```python
+type_route = dbutils.widgets.get("type_route")  # "good" ou "bad"
+```
+
+## Données d'entrée
+
+### 1. Données équipements (Fenêtre 365 jours)
+```python
+df_EQPT_spark = spark.sql(f"""
+    SELECT *
+    FROM mds_prod_gold_experiment.datascent_dev.pt_z028_input_{type_route.lower()}_for_ar
+    WHERE T84_TEST_DATE BETWEEN DATE_SUB(CURRENT_DATE(), 365) AND CURRENT_DATE()
+""")
+```
+
+### 2. Résultats AR les plus récents
+```python
+df_ar_result = spark.sql(f"""
+    SELECT * 
+    FROM mds_prod_gold_experiment.datasciences_dev.pt_z028_input_bad_route_results 
+    WHERE Processed_Date_Job = ( 
+        SELECT MAX(Processed_Date_Job) FROM mds_prod_gold_experiment.datasciences_dev.pt_z028_input_bad_route_results 
+    )
+""")
+```
+
+## Pipeline de validation
+
+### 1. Fonction `validate_routes` - Paramètres clés
+
+#### Seuil de filtrage renforcé
+- **min_sum=6** : Seuil minimum pour les sommes des colonnes `week_*`
+*un equipement doit etre présent au moins 6 fois pour etre pris en compte*  
+
+**Justification** : Élimine les équipements avec trop peu d'occurrences sur les fenêtres glissantes
+**Impact** : Focus sur les équipements réellement problématiques de façon récurrente
+
+#### Traitement des données
+```python
+routes, df_validation = validate_routes(df_ar_result, df_EQPT_spark, type_route, min_sum=6)
+```
+
+### 2. Processus de validation interne
+
+#### Étape 1 : Conversion et préparation
+- **Conversion Spark → Pandas** pour optimiser les calculs complexes
+- **Calcul WEEK_SUM** : Somme des occurrences par équipement sur toutes les semaines
+- **Filtrage min_sum** : `df_ar[df_ar['WEEK_SUM'] >= 6]`
+
+#### Étape 2 : Construction des worst/best routes
+- **Déduplication par OP_STEP** : Un seul équipement par étape (celui avec le WEEK_SUM max)
+- **Construction OP_STEP** : Concaténation `OPERATION + '|' + STEP`
+- **Route finale** : Liste des équipements les plus récurrents par famille
+
+#### Étape 3 : Validation sur données réelles
+- **Matching wafers** : Identification des lots ayant utilisé ces équipements
+- **Comptage matches** : Nombre d'étapes "worst/best" par wafer
+- **Calcul baseline** : Taux moyen sur l'ensemble de la population
+
+### 3. Algorithme de validation détaillé
+
+#### Processus par famille
+1. **Filtrage famille** : Sélection des données pour une famille spécifique
+2. **Application seuil** : Conservation des équipements avec `WEEK_SUM >= min_sum`
+3. **Sélection best equipment** : Par OP_STEP, garder l'équipement avec le WEEK_SUM maximum
+4. **Merge avec données lot** : Jointure sur OP_STEP pour identifier les matches
+5. **Agrégation wafer** : Comptage des matches par LOGICAL_ID
+
+#### Code de matching
+```python
+# Identifier les matches (même OP_STEP et même équipement)
+df_merged['is_match'] = (df_merged['EQUIPMENT'] == df_merged['WORST_EQUIPMENT']).fillna(False)
+
+# Compter les matches par wafer
+wafer_matches = df_merged.groupby('LOGICAL_ID').agg({
+    'is_match': 'sum',  # Nombre de matches
+    type_route: 'max'   # Taux de bad du wafer
+}).reset_index()
+```
+
+### 4. Métriques de validation
+
+#### Analyse graduée par nombre de matches
+Pour chaque famille, calcul des taux selon le nombre d'équipements problématiques utilisés :
+- **0 matches** : Wafers sans équipement identifié
+- **1-N matches** : Impact proportionnel au nombre d'équipements utilisés
+- **Validation réussie** : Corrélation positive matches ↔ taux de défaut
+
+#### Métriques produites
+- **BASELINE_PCT** : Taux moyen de la famille
+- **BAD_RATE_PCT** : Taux par niveau de matches
+- **DELTA_PCT** : Écart par rapport à la baseline
+- **WAFER_COUNT** : Volume statistique par segment
+
+#### Calcul des statistiques
+```python
+# Analyser par nombre de matches
+match_stats = wafer_matches.groupby('matches').agg({
+    'bad_rate': ['count', 'mean']
+}).reset_index()
+
+# Calculer baseline et deltas
+baseline = wafer_matches['bad_rate'].mean()
+delta = bad_rate - baseline
+```
+
+## Affichage et sauvegarde
+
+### 1. Affichage console détaillé
+```python
+print(f"\nTraitement famille : {family}")
+print(f"Worst route identifiée : {len(worst_route_final)} étapes")
+for _, row in worst_route_final.iterrows():
+    print(f"  {row['OP_STEP']} -> {row['EQPT']} (WEEK_SUM: {row['WEEK_SUM']})")
+print(f"Baseline : {baseline*100:.1f}%")
+```
+
+### 2. Affichage interactif Databricks
+```python
+print("RÉSULTATS ")
+display(df_validation)
+```
+
+### 3. Persistance des résultats
+```python
+create_or_update_table(
+    spark.createDataFrame(df_validation), 
+    f"mds_prod_gold_experiment.datasciences_dev.pt_z028_ar_{type_route.lower()}validation_summary"
+)
+```
+
+## Output final
+
+### Table de sortie
+**Nom** : `pt_z028_ar_{type_route}_validation_summary`  
+**Mode** : Création/Mise à jour automatique  
+**Localisation** : `mds_prod_gold_experiment.datasciences_dev`
+
+### Structure DataFrame de sortie
+| Colonne | Type | Description |
+|:-------:|:----:|:------------|
+| FAMILY | String | Famille de paramètres analysée |
+| WORST_ROUTE_STEPS | Integer | Nombre d'étapes dans la route identifiée |
+| MATCHES | Integer | Nombre d'équipements identifiés utilisés |
+| WAFER_COUNT | Integer | Volume de wafers dans ce segment |
+| BAD_RATE_PCT | Float | Taux de défaut observé (%) |
+| BASELINE_PCT | Float | Taux moyen famille (%) |
+| DELTA_PCT | Float | Impact relatif (+/-%) |
+| Processed_Date_Job | Date | Date d'exécution du job |
+
+## Résultat métier
+
+### Validation quantitative
+- **Seuil renforcé (min_sum=6)** : Focus sur les équipements réellement récurrents
+- **Données sur 365 jours** : Robustesse statistique maximale
+- **Analyse graduée** : Impact proportionnel confirmé
+- **Traçabilité complète** : Historisation des validations successives
+
+### Exemple de résultat console
+```
+Traitement famille : CONTACT
+
+Worst route identifiée : 4 étapes
+  OP123|STEP456 -> EQPT789 (WEEK_SUM: 8)
+  OP124|STEP457 -> EQPT790 (WEEK_SUM: 6)
+  OP125|STEP458 -> EQPT791 (WEEK_SUM: 7)
+  OP126|STEP459 -> EQPT792 (WEEK_SUM: 9)
+
+Baseline : 15.2%
+  0/4 matches: 12.1% (-3.1%) [1234 wafers]
+  1/4 matches: 14.8% (-0.4%) [856 wafers]
+  2/4 matches: 18.7% (+3.5%) [423 wafers]
+  3/4 matches: 24.3% (+9.1%) [187 wafers]
+  4/4 matches: 31.2% (+16.0%) [52 wafers]
+```
+
+### Interprétation des résultats
+
+#### ✅ **Validation réussie si :**
+- **Corrélation positive** : Plus de matches → taux BAD plus élevé
+- **Deltas significatifs** : Écarts >5% par rapport baseline
+- **Volume suffisant** : >50 wafers par segment pour robustesse statistique
+
+#### ⚠️ **Validation à revoir si :**
+- **Corrélation faible** : Impact non proportionnel
+- **Volumes insuffisants** : <20 wafers dans segments élevés
+- **Baseline déséquilibrée** : Taux extrêmes (>90% ou <5%)
+
+### Impact business
+1. **Priorisation actions** : Focus sur familles avec deltas élevés
+2. **Quantification ROI** : Estimation gain yield si équipements évités
+3. **Monitoring continu** : Suivi évolution performance équipements
+4. **Feedback process** : Validation efficacité corrections appliquées
+
+## Robustesse et gestion d'erreur
+
+### Cas limites gérés
+- **Familles vides** : Skip si aucune donnée après filtrage min_sum
+- **Matches zero** : Gestion des wafers sans équipement problématique
+- **Baseline calculation** : Protection division par zéro
+- **Type conversion** : Gestion des types pandas/spark dans les agrégations
+
+### Logging et debugging
+```python
+if worst_route_filtered.empty:
+    print(f"  Aucune ligne avec WEEK_SUM >= {min_sum} pour cette famille")
+    continue
+```
 
 
 
+---
 
 
-Conclusion
+**Conclusion** : Cette phase valide de manière robuste et quantifiable l'impact des équipements identifiés, fournissant une base solide pour les décisions d'amélioration process.
