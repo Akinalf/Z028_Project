@@ -727,17 +727,6 @@ routes, df_validation = validate_routes(df_ar_result, df_EQPT_spark, type_route,
 4. **Merge avec données lot** : Jointure sur OP_STEP pour identifier les matches
 5. **Agrégation wafer** : Comptage des matches par LOGICAL_ID
 
-#### Code de matching
-```python
-# Identifier les matches (même OP_STEP et même équipement)
-df_merged['is_match'] = (df_merged['EQUIPMENT'] == df_merged['WORST_EQUIPMENT']).fillna(False)
-
-# Compter les matches par wafer
-wafer_matches = df_merged.groupby('LOGICAL_ID').agg({
-    'is_match': 'sum',  # Nombre de matches
-    type_route: 'max'   # Taux de bad du wafer
-}).reset_index()
-```
 
 ### 4. Métriques de validation
 
@@ -753,42 +742,6 @@ Pour chaque famille, calcul des taux selon le nombre d'équipements problématiq
 - **DELTA_PCT** : Écart par rapport à la baseline
 - **WAFER_COUNT** : Volume statistique par segment
 
-#### Calcul des statistiques
-```python
-# Analyser par nombre de matches
-match_stats = wafer_matches.groupby('matches').agg({
-    'bad_rate': ['count', 'mean']
-}).reset_index()
-
-# Calculer baseline et deltas
-baseline = wafer_matches['bad_rate'].mean()
-delta = bad_rate - baseline
-```
-
-## Affichage et sauvegarde
-
-### 1. Affichage console détaillé
-```python
-print(f"\nTraitement famille : {family}")
-print(f"Worst route identifiée : {len(worst_route_final)} étapes")
-for _, row in worst_route_final.iterrows():
-    print(f"  {row['OP_STEP']} -> {row['EQPT']} (WEEK_SUM: {row['WEEK_SUM']})")
-print(f"Baseline : {baseline*100:.1f}%")
-```
-
-### 2. Affichage interactif Databricks
-```python
-print("RÉSULTATS ")
-display(df_validation)
-```
-
-### 3. Persistance des résultats
-```python
-create_or_update_table(
-    spark.createDataFrame(df_validation), 
-    f"mds_prod_gold_experiment.datasciences_dev.pt_z028_ar_{type_route.lower()}validation_summary"
-)
-```
 
 ## Output final
 
@@ -837,40 +790,16 @@ Baseline : 15.2%
 
 ### Interprétation des résultats
 
-#### ✅ **Validation réussie si :**
+#### **Validation réussie si :**
 - **Corrélation positive** : Plus de matches → taux BAD plus élevé
-- **Deltas significatifs** : Écarts >5% par rapport baseline
-- **Volume suffisant** : >50 wafers par segment pour robustesse statistique
+- **Deltas significatifs** : Écarts ~>5% par rapport baseline
+- **Volume suffisant** : ~>50 wafers par segment pour robustesse statistique
 
-#### ⚠️ **Validation à revoir si :**
-- **Corrélation faible** : Impact non proportionnel
-- **Volumes insuffisants** : <20 wafers dans segments élevés
-- **Baseline déséquilibrée** : Taux extrêmes (>90% ou <5%)
 
 ### Impact business
-1. **Priorisation actions** : Focus sur familles avec deltas élevés
-2. **Quantification ROI** : Estimation gain yield si équipements évités
-3. **Monitoring continu** : Suivi évolution performance équipements
-4. **Feedback process** : Validation efficacité corrections appliquées
+1. **Priorisation actions** : Focus sur les familles avec des deltas élevés
+4. **Feedback process** : Validation, efficacité, corrections appliquées.
 
-## Robustesse et gestion d'erreur
-
-### Cas limites gérés
-- **Familles vides** : Skip si aucune donnée après filtrage min_sum
-- **Matches zero** : Gestion des wafers sans équipement problématique
-- **Baseline calculation** : Protection division par zéro
-- **Type conversion** : Gestion des types pandas/spark dans les agrégations
-
-### Logging et debugging
-```python
-if worst_route_filtered.empty:
-    print(f"  Aucune ligne avec WEEK_SUM >= {min_sum} pour cette famille")
-    continue
-```
+# Conclusion Global
 
 
-
----
-
-
-**Conclusion** : Cette phase valide de manière robuste et quantifiable l'impact des équipements identifiés, fournissant une base solide pour les décisions d'amélioration process.
