@@ -52,12 +52,12 @@ l'approche fenêtre glissante 12 semaines change la donne :
   - ↗️ Adapté : Données catégoriques (équipements), relation claire cause-effet
   - ❌ Limitations : Performance sur gros volumes, scan multiple base de données
 
-- **FP-Growth** (Han et al., 2000)
+- **FP-Growth** (Jiawei Han, Jian Pei, and Yiwen Yin, 2000)
   - ↗️ Avantages : Performance supérieure, un seul scan base de données
   - ↗️ Adapté : Gros volumes manufacturing data
   - ❌ Limitations : Consommation mémoire, moins intuitif
 
-- **Prefix Span** (Pei et al., 2001)
+- **Prefix Span** (Jian Pei, Jiawei Han ,Behzad Mortazavi-Asl et Helen Pinto 2001)
   - ↗️ Avantages : Prise en compte séquences temporelles
   - ↗️ Adapté : Routes séquentielles dans manufacturing
   - ❌ Limitations : Complexité algorithmique élevée
@@ -172,17 +172,6 @@ l'approche fenêtre glissante 12 semaines change la donne :
 - Manque données (wafer) en production pour un apprentissage efficace.
 - Complexité importante en termes d’infrastructure et d’expertise nécessaire.
 
-## 5. Bibliographie des algorythmes
-
-**Règles d'Association Manufacturing** :
-- Kusiak, A. (2000). "Rough set theory in manufacturing". *International Journal of Production Research*, 38(18), 4349-4364.
-- Chen, F., et al. (2008). "Association rule mining for defect detection in semiconductor manufacturing". *IEEE Transactions on Semiconductor Manufacturing*, 21(3), 398-409.
-
-**Optimisation Routes Semi-conducteurs** :
-- Mönch, L., et al. (2013). "Production planning and control for semiconductor wafer fabrication facilities". *Springer*.
-- Kumar, P., et al. (2006). "Genetic algorithm approach for scheduling in a complex manufacturing system". *International Journal of Advanced Manufacturing Technology*, 30(7-8), 682-692.
-
-
 ## 6. Perspectives et Améliorations Futures
 
 ### 6.1 Hybridation des approches
@@ -190,8 +179,6 @@ l'approche fenêtre glissante 12 semaines change la donne :
 
 ### 6.2 Temps Réel et Streaming
 - Adaptation Kafka pour données équipements en temps réel
-- Mise à jour incrémentale des règles d'association
-
 
 
 ## Implémentation code détaillé
@@ -246,7 +233,7 @@ Pipeline Unity Catalog
 
 ### **Worker Nodes**
 **Type :** Standard_D4ds_v5  
-**RAM :** 32 GB par node
+**RAM :** 64 GB par node
 **Cores :** 4 par node
 **Quantité :** 8 (Spot instances)
 
@@ -261,7 +248,7 @@ Pipeline Unity Catalog
 
 | **RAM Total** | **Cores Total** | **Nodes Total** |
 |:----------------:|:------------------:|:-------------------:|
-| **64-256 GB** | **16-64 Cores** | **9 Nodes** |
+| **128-384 GB** | **32-96 Cores** | **6 Nodes** |
 
 ---
 
@@ -322,11 +309,8 @@ graph TD
 ####  Scalabilité
 
 
-  
-
-
 |**Auto-scaling cluster** |**Photon engine**|**Adaptive Query Execution**|
-|---------------------|-----------------------|--------------|
+|:---------------------:|:-----------------------:|:--------------:|
 |  selon la charge  | pour performance SQL | optimisé |
 
 
