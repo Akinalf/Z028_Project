@@ -565,17 +565,32 @@ Deux tables stocker dans :
 
 → **Prêt pour la validation** dans VALIDATION_AR_FAMILLIES.py
 
-
-# Phase 3 : VALIDATION_AR_FAMILIES - Validation des Routes Identifiées
+# Phase 3 : VALIDATION_AR_FAMILIES - Validation des Routes avec Scoring Pondéré
 
 ## Objectif
-Valider statistiquement les routes identifiées comme problématiques ou bonnes dans la Phase 2 en comparant les performances réelles des wafers ayant suivi ces équipements.
+Valider statistiquement les routes identifiées comme problématiques ou bonnes dans la Phase 2 en utilisant un **système de scoring pondéré** qui privilégie la récence et la continuité des problèmes, puis comparer les performances réelles des wafers ayant suivi ces équipements.
+
+##  Évolution majeure : Scoring pondéré temporel
+
+### Principe du nouveau système
+Au lieu d'une simple somme des occurrences, le système calcule un **score composite** basé sur :
+- **50% Récence** : Les problèmes récents sont prioritaires (décroissance exponentielle)
+- **30% Continuité** : Les séquences consécutives sont valorisées
+- **20% Persistance** : Le nombre total d'apparitions compte aussi
+
+### Justification métier
+- **Problème résolu** : Un équipement problématique il y a 6 mois (tres certainement corrigé depuis) ne doit pas être prioritaire sur un equipement problématique récent
+- **Problème émergent** : Un équipement devenant problématique récemment doit être détecté rapidement
+- **Pattern sporadique vs continu** : Un problème continu est plus critique qu'un problème intermittent (Drift)
 
 ## Paramétrage dynamique
-Le script utilise le paramètre `type_route` des widgets Databricks pour déterminer si on effectue l'analyse de la worst ou de la golden route :
 
+### Paramètres de scoring
 ```python
-type_route = dbutils.widgets.get("type_route")  # "good" ou "bad"
+use_weighted_scoring = True     # Active le scoring pondéré
+recency_weight = 0.5           # 50% d'importance pour la récence
+continuity_weight = 0.3        # 30% d'importance pour la continuité
+# 20% restant automatiquement alloué à la persistance
 ```
 
 ## Données d'entrée
@@ -584,7 +599,7 @@ type_route = dbutils.widgets.get("type_route")  # "good" ou "bad"
 ```python
 df_EQPT_spark = spark.sql(f"""
     SELECT *
-    FROM mds_prod_gold_experiment.datascent_dev.pt_z028_input_{type_route.lower()}_for_ar
+    FROM mds_prod_gold_experiment.datasciences_dev.pt_z028_input_{type_route.lower()}_for_ar
     WHERE T84_TEST_DATE BETWEEN DATE_SUB(CURRENT_DATE(), 365) AND CURRENT_DATE()
 """)
 ```
@@ -593,127 +608,207 @@ df_EQPT_spark = spark.sql(f"""
 ```python
 df_ar_result = spark.sql(f"""
     SELECT * 
-    FROM mds_prod_gold_experiment.datasciences_dev.pt_z028_input_bad_route_results 
+    FROM mds_prod_gold_experiment.datasciences_dev.pt_z028_ar_{type_route.lower()}_route_results 
     WHERE Processed_Date_Job = ( 
-        SELECT MAX(Processed_Date_Job) FROM mds_prod_gold_experiment.datasciences_dev.pt_z028_input_bad_route_results 
+        SELECT MAX(Processed_Date_Job) FROM ... 
     )
 """)
 ```
 
 ## Pipeline de validation
 
-### 1. Fonction `validate_routes` - Paramètres clés
+### 1. Fonctions de scoring
 
-#### Seuil de filtrage renforcé
-- **min_sum=6** : Seuil minimum pour les sommes des colonnes `week_*`
-*un equipement doit etre présent au moins 6 fois pour etre pris en compte*  
-
-**Justification** : Élimine les équipements avec trop peu d'occurrences sur les fenêtres glissantes
-**Impact** : Focus sur les équipements réellement problématiques de façon récurrente
-
-#### Traitement des données
+#### `calculate_weighted_score()` - Calcul du score pondéré
 ```python
-routes, df_validation = validate_routes(df_ar_result, df_EQPT_spark, type_route, min_sum=6)
+def calculate_weighted_score(row, week_columns, recency_weight=0.7, continuity_weight=0.2):
+    """
+    Composantes du score :
+    1. Score de récence : Décroissance exponentielle (demi-vie = 10 semaines)
+    2. Score de continuité : Bonus quadratique pour séquences consécutives
+    3. Score de persistance : Nombre total d'apparitions normalisé
+    4. Pénalité gaps : Réduction pour patterns sporadiques
+    """
 ```
 
-### 2. Processus de validation interne
+**Décroissance temporelle** :
+- Semaine 40 (actuelle) : poids = 100%
+- Semaine 30 (-10 sem) : poids ≈ 50%
+- Semaine 20 (-20 sem) : poids ≈ 25%
+- Semaine 10 (-30 sem) : poids ≈ 12.5%
+- Semaine 1 (-39 sem) : poids ≈ 6%
 
-#### Étape 1 : Conversion et préparation
-- **Conversion Spark → Pandas** pour optimiser les calculs complexes
-- **Calcul WEEK_SUM** : Somme des occurrences par équipement sur toutes les semaines
-- **Filtrage min_sum** : `df_ar[df_ar['WEEK_SUM'] >= 6]`
+#### `analyze_continuity_patterns()` - Analyse des patterns
+```python
+def analyze_continuity_patterns(row, week_columns):
+    """
+    Classification des patterns :
+    - 'strong_continuous' : ≥6 semaines consécutives
+    - 'moderate_continuous' : ≥3 semaines consécutives
+    - 'sporadic' : "Grandes" interruptions (>4 semaines)
+    - 'intermittent' : Apparitions espacées régulières
+    """
+```
 
-#### Étape 2 : Construction des worst/best routes
-- **Déduplication par OP_STEP** : Un seul équipement par étape (celui avec le WEEK_SUM max)
-- **Construction OP_STEP** : Concaténation `OPERATION + '|' + STEP`
-- **Route finale** : Liste des équipements les plus récurrents par famille
+### 2. Fonction `validate_routes`
 
-#### Étape 3 : Validation sur données réelles
-- **Matching wafers** : Identification des lots ayant utilisé ces équipements
-- **Comptage matches** : Nombre d'étapes "worst/best" par wafer
-- **Calcul baseline** : Taux moyen sur l'ensemble de la population
+#### Paramètres principaux
+```python
+df_validation = validate_routes(
+    df_ar_result,           # Résultats AR de la phase 2
+    df_EQPT_spark,         # Données équipements sur 365j
+    type_route,            # "BAD" ou "GOOD"
+    min_sum=6,             # Seuil minimum du score
+    use_weighted_scoring=True,  # Active le scoring pondéré
+    recency_weight=0.5,         # 50% pour la récence
+    continuity_weight=0.3       # 30% pour la continuité
+)
+```
 
-### 3. Algorithme de validation détaillé
+### 3. Processus de validation détaillé
 
-#### Processus par famille
-1. **Filtrage famille** : Sélection des données pour une famille spécifique
-2. **Application seuil** : Conservation des équipements avec `WEEK_SUM >= min_sum`
-3. **Sélection best equipment** : Par OP_STEP, garder l'équipement avec le WEEK_SUM maximum
-4. **Merge avec données lot** : Jointure sur OP_STEP pour identifier les matches
-5. **Agrégation wafer** : Comptage des matches par LOGICAL_ID
+#### Étape 1 : Calcul des scores pondérés
+```python
+# Pour chaque équipement, calcul du score composite
+df_ar['WEIGHTED_SCORE'] = df_ar.apply(
+    lambda row: calculate_weighted_score(row, week_columns, 0.5, 0.3), 
+    axis=1
+)
 
+# Ajout des métriques de continuité
+df_ar['continuity_pattern'] = ...      # Type de pattern détecté
+df_ar['max_consecutive_weeks'] = ...   # Plus longue séquence
+```
 
-### 4. Métriques de validation
+#### Étape 2 : Sélection des worst/best routes
 
-#### Analyse graduée par nombre de matches
-Pour chaque famille, calcul des taux selon le nombre d'équipements problématiques utilisés :
-- **0 matches** : Wafers sans équipement identifié
-- **1-N matches** : Impact proportionnel au nombre d'équipements utilisés
-- **Validation réussie** : Corrélation positive matches ↔ taux de défaut
+**Nouveau critère** : Utilisation de `WEIGHTED_SCORE`
 
-#### Métriques produites
-- **BASELINE_PCT** : Taux moyen de la famille
-- **BAD_RATE_PCT** : Taux par niveau de matches
-- **DELTA_PCT** : Écart par rapport à la baseline
-- **WAFER_COUNT** : Volume statistique par segment
+1. **Filtrage score minimum** : `df[df['WEIGHTED_SCORE'] >= min_sum]`
+2. **Sélection par OP_STEP** : Équipement avec le score pondéré maximum
+3. **Ajustement par taille de famille** :
+   - Petite (≤8 étapes) : 100% conservé
+   - Moyenne (≤15 étapes) : 60% conservé
+   - Grande (>15 étapes) : 30% conservé (max 10)
 
+#### Étape 3 : Affichage enrichi des routes
 
-## Output final
+```
+Traitement famille : CONTACT
+Utilisation du scoring pondéré avec bonus de continuité
+   Poids récence: 50%, continuité: 30%, persistance: 20%
+   Score moyen (simple) : 8.43
+   Score moyen (pondéré) : 24.67
+
+Top 5 équipements par score pondéré :
+  • O_STRIP|STEP_DRY -> SGAMA04
+    Score: 45.2 (simple: 12)
+    Pattern: strong_continuous, Max consécutif: 8 semaines
+  • O_DEP_HK|DEP_HK -> TCENT11
+    Score: 38.7 (simple: 7)
+    Pattern: moderate_continuous, Max consécutif: 3 semaines
+```
+
+### 4. Tests statistiques
+
+#### Sélection automatique du test selon la taille d'échantillon
+- **n ≥ 30** : Test Z (proportions)
+- **10 ≤ n < 30** : Test exact de Fisher
+- **5 ≤ n < 10** : Test binomial exact
+- **n < 5** : Pas de test (échantillon insuffisant)
+
+#### Nouvelle colonne dans les résultats
+- **SCORING_METHOD** : 'weighted' ou 'simple' pour traçabilité
+
+## Output
 
 ### Table de sortie
 **Nom** : `pt_z028_ar_{type_route}_validation_summary`  
-**Mode** : Création/Mise à jour automatique  
 **Localisation** : `mds_prod_gold_experiment.datasciences_dev`
 
-### Structure DataFrame de sortie
+### Structure DataFrame enrichie
 | Colonne | Type | Description |
 |:-------:|:----:|:------------|
 | FAMILY | String | Famille de paramètres analysée |
-| WORST_ROUTE_STEPS | Integer | Nombre d'étapes dans la route identifiée |
-| MATCHES | Integer | Nombre d'équipements identifiés utilisés |
+| WORST_ROUTE_STEPS | Integer | Nombre d'étapes dans la route |
+| MATCHES | Integer | Nombre d'équipements problématiques utilisés |
 | WAFER_COUNT | Integer | Volume de wafers dans ce segment |
 | BAD_RATE_PCT | Float | Taux de défaut observé (%) |
 | BASELINE_PCT | Float | Taux moyen famille (%) |
 | DELTA_PCT | Float | Impact relatif (+/-%) |
-| Processed_Date_Job | Date | Date d'exécution du job |
+| P_VALUE | Float | Significativité statistique |
+| **SCORING_METHOD** | String |'weighted' ou 'simple'|
+| Processed_Date_Job | Date | Date d'exécution |
 
-## Résultat métier
+## Résultats et interprétation
 
-### Validation quantitative
-- **Seuil renforcé (min_sum=6)** : Focus sur les équipements réellement récurrents
-- **Données sur 365 jours** : Robustesse statistique maximale
-- **Analyse graduée** : Impact proportionnel confirmé
-- **Traçabilité complète** : Historisation des validations successives
-
-### Exemple de résultat console
+### Exemple de sortie console
 ```
-Traitement famille : CONTACT
+Traitement famille : NMOS-GO1-LVT
+Utilisation du scoring pondéré (50% récence, 30% continuité, 20% persistance)
 
-Worst route identifiée : 4 étapes
-  OP123|STEP456 -> EQPT789 (WEEK_SUM: 8)
-  OP124|STEP457 -> EQPT790 (WEEK_SUM: 6)
-  OP125|STEP458 -> EQPT791 (WEEK_SUM: 7)
-  OP126|STEP459 -> EQPT792 (WEEK_SUM: 9)
+Worst route identifiée : 4 étapes retenues
+  O_STRIP|STRIP_DRY -> SGAMA04 (Score pondéré: 42.3, Pattern: strong_continuous)
+  O_DEP_HK|DEP_HK -> TCENT11 (Score pondéré: 38.1, Pattern: moderate_continuous)
+  O_IMPL2|IMPL2_NWELL -> IVISM07 (Score pondéré: 31.5, Pattern: sporadic)
+  O_STRIP_ADJ|STRIP_DRY -> SGAMA14 (Score pondéré: 28.9, Pattern: intermittent)
 
 Baseline : 15.2%
-  0/4 matches: 12.1% (-3.1%) [1234 wafers]
-  1/4 matches: 14.8% (-0.4%) [856 wafers]
-  2/4 matches: 18.7% (+3.5%) [423 wafers]
-  3/4 matches: 24.3% (+9.1%) [187 wafers]
-  4/4 matches: 31.2% (+16.0%) [52 wafers]
+  0/4 matches: 12.1% (-3.1%) [1234 wafers] p=0.023(Z)
+  1/4 matches: 14.8% (-0.4%) [856 wafers] p=0.412(Z)
+  2/4 matches: 18.7% (+3.5%) [423 wafers] p=0.008(Z)
+  3/4 matches: 24.3% (+9.1%) [187 wafers] p<0.001(Fisher)
+  4/4 matches: 31.2% (+16.0%) [52 wafers] p<0.001(Binomial)
 ```
 
-### Interprétation des résultats
+### Comparaison weighted vs simple
 
-#### **Validation réussie si :**
-- **Corrélation positive** : Plus de matches → taux BAD plus élevé
-- **Deltas significatifs** : Écarts ~>5% par rapport baseline
-- **Volume suffisant** : ~>50 wafers par segment pour robustesse statistique
+| Aspect | simple | weighted |
+|:------:|:-------------:|:---------------:|
+| **Métrique principale** | Somme simple (WEEK_SUM) | Score pondéré (WEIGHTED_SCORE) |
+| **Récence** | Non considérée | 70% du score (décroissance exp.) |
+| **Continuité** | Non évaluée | 20% du score (bonus quadratique) |
+| **Équipement ancien corrigé** | Reste prioritaire | Score fortement réduit |
+| **Problème récent émergent** | Peut être ignoré | Détecté rapidement |
+| **Pattern analysis** | Absent | Classification automatique |
 
+### Critères de validation réussie
 
-### Impact business
-1. **Priorisation actions** : Focus sur les familles avec des deltas élevés
-4. **Feedback process** : Validation, efficacité, corrections appliquées.
+#### Validation quantitative
+**Corrélation positive** : Plus de matches → taux défaut plus élevé  
+**Significativité statistique** : p-value < 0.05 pour segments critiques  
+**Volume suffisant** : >50 wafers pour robustesse  
+**Pattern cohérent** : Équipements avec patterns 'continuous' priorisés  
+
+#### Validation qualitative
+**Récence confirmée** : Les problèmes identifiés sont actuels  
+**Continuité vérifiée** : Pas de fausses alertes sur pics isolés  
+**Actionnable** : Focus sur ce qui peut être corrigé maintenant  
+
+## Impact
+
+### 1. **Priorisation optimisée**
+- Focus sur les problèmes **actuels** vs historiques
+- Détection rapide des **dérives émergentes**
+- Élimination du **bruit** (pics isolés non significatifs)
+
+### 2. **ROI maintenance**
+- Interventions sur équipements **vraiment problématiques**
+- Évite les actions sur problèmes **déjà résolus**
+
+### 3. **Traçabilité complète**
+- Historique des scores et patterns
+- Évolution temporelle des problèmes trackée
+
+### 4. **Adaptabilité**
+Les poids peuvent être ajustés selon le contexte :
+```python
+# Process très stable → Focus continuité
+validate_routes(..., recency_weight=0.3, continuity_weight=0.6)
+
+# Process en évolution → Focus récence
+validate_routes(..., recency_weight=0.8, continuity_weight=0.1)
+```
 
 # Conclusion Global
 
